@@ -9,7 +9,7 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 // import "hardhat/console.sol";
 
 contract NFTTicketMarketplace is ERC721, Ownable {
-    string private baseURI = "http://localhost:5000/event-ticket/data/";
+    string private baseURI = "http://localhost:5001/api/event-ticket/data/";
 
     function _baseURI() internal view override returns (string memory) {
         return baseURI;
@@ -94,8 +94,11 @@ contract NFTTicketMarketplace is ERC721, Ownable {
         address seller,
         address owner,
         uint256 price,
-        bool sold
+        bool sold,
+        uint256 onChainId
     );
+
+    event MarketItemSold(uint256 onChainId);
 
     constructor() ERC721("Ticket Tokens", "TCKT") {
         // owner = payable(msg.sender);
@@ -253,13 +256,6 @@ contract NFTTicketMarketplace is ERC721, Ownable {
         );
 
         _transfer(msg.sender, address(this), tokenId);
-        emit MarketItemCreated(
-            tokenId,
-            msg.sender,
-            address(this),
-            price,
-            false
-        );
     }
 
     /* allows someone to resell a token they have purchased */
@@ -274,30 +270,45 @@ contract NFTTicketMarketplace is ERC721, Ownable {
         );
         _marketIds.increment();
         uint256 key = _marketIds.current();
-        idToMarketItem[key].sold = false;
-        idToMarketItem[key].price = price;
-        idToMarketItem[key].seller = payable(msg.sender);
-        idToMarketItem[key].owner = payable(address(this));
+        idToMarketItem[key] = MarketItem(
+            tokenId,
+            payable(msg.sender),
+            payable(address(this)),
+            price,
+            false
+        );
 
         _transfer(msg.sender, address(this), tokenId);
+        emit MarketItemCreated(
+            tokenId,
+            msg.sender,
+            address(this),
+            price,
+            false,
+            key
+        );
     }
 
     /* Creates the sale of a marketplace item */
     /* Transfers ownership of the item, as well as funds between parties */
-    function createMarketSale(uint256 tokenId) public payable {
-        uint256 price = idToMarketItem[tokenId].price;
-        address seller = idToMarketItem[tokenId].seller;
+    function createMarketSale(uint256 marketId) public payable {
+        uint256 price = idToMarketItem[marketId].price;
+        address seller = idToMarketItem[marketId].seller;
+        bool isSold = idToMarketItem[marketId].sold;
+        uint256 tokenId = idToMarketItem[marketId].tokenId;
         require(
             msg.value == price,
-            "Please submit the asking price in order to complete the purchase"
+            "Please submit the asking price in orsder to complete the purchase"
         );
-        idToMarketItem[tokenId].owner = payable(msg.sender);
-        idToMarketItem[tokenId].sold = true;
-        idToMarketItem[tokenId].seller = payable(address(0));
+        require(!isSold, "Item has sold");
+        idToMarketItem[marketId].owner = payable(msg.sender);
+        idToMarketItem[marketId].sold = true;
+        idToMarketItem[marketId].seller = payable(address(0));
         _itemsSold.increment();
         _transfer(address(this), msg.sender, tokenId);
         payable(owner()).transfer(listingPrice);
         payable(seller).transfer(msg.value);
+        emit MarketItemSold(marketId);
     }
 
     /* Returns all unsold market items */
